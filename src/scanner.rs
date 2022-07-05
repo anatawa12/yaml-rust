@@ -20,14 +20,38 @@ pub enum TScalarStyle {
 
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
 pub struct Marker {
+    begin: OneMarker,
+    end: OneMarker,
+}
+
+impl Marker {
+    pub fn new(begin: OneMarker, end: OneMarker) -> Marker {
+        Marker { begin, end }
+    }
+
+    pub fn emtpy(begin: OneMarker) -> Marker {
+        Marker { begin, end: begin }
+    }
+
+    pub fn begin(&self) -> &OneMarker {
+        &self.begin
+    }
+
+    pub fn end(&self) -> &OneMarker {
+        &self.end
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Eq)]
+pub struct OneMarker {
     index: usize,
     line: usize,
     col: usize,
 }
 
-impl Marker {
-    fn new(index: usize, line: usize, col: usize) -> Marker {
-        Marker { index, line, col }
+impl OneMarker {
+    fn new(index: usize, line: usize, col: usize) -> OneMarker {
+        OneMarker { index, line, col }
     }
 
     pub fn index(&self) -> usize {
@@ -45,19 +69,19 @@ impl Marker {
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct ScanError {
-    mark: Marker,
+    mark: OneMarker,
     info: String,
 }
 
 impl ScanError {
-    pub fn new(loc: Marker, info: &str) -> ScanError {
+    pub fn new(loc: OneMarker, info: &str) -> ScanError {
         ScanError {
             mark: loc,
             info: info.to_owned(),
         }
     }
 
-    pub fn marker(&self) -> &Marker {
+    pub fn marker(&self) -> &OneMarker {
         &self.mark
     }
 }
@@ -122,11 +146,11 @@ struct SimpleKey {
     possible: bool,
     required: bool,
     token_number: usize,
-    mark: Marker,
+    mark: OneMarker,
 }
 
 impl SimpleKey {
-    fn new(mark: Marker) -> SimpleKey {
+    fn new(mark: OneMarker) -> SimpleKey {
         SimpleKey {
             possible: false,
             required: false,
@@ -139,7 +163,7 @@ impl SimpleKey {
 #[derive(Debug)]
 pub struct Scanner<T> {
     rdr: T,
-    mark: Marker,
+    mark: OneMarker,
     tokens: VecDeque<Token>,
     buffer: VecDeque<char>,
     error: Option<ScanError>,
@@ -233,7 +257,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         Scanner {
             rdr,
             buffer: VecDeque::new(),
-            mark: Marker::new(0, 1, 0),
+            mark: OneMarker::new(0, 1, 0),
             tokens: VecDeque::new(),
             error: None,
 
@@ -309,7 +333,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.stream_end_produced
     }
     #[inline]
-    pub fn mark(&self) -> Marker {
+    pub fn mark(&self) -> OneMarker {
         self.mark
     }
     #[inline]
@@ -324,6 +348,10 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         } else {
             unreachable!();
         }
+    }
+    #[inline]
+    fn new_marker(&self, begin: OneMarker) -> Marker {
+        Marker::new(begin, self.mark)
     }
     fn insert_token(&mut self, pos: usize, tok: Token) {
         let old_len = self.tokens.len();
@@ -513,9 +541,12 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.indent = -1;
         self.stream_start_produced = true;
         self.allow_simple_key();
-        self.tokens
-            .push_back(Token(mark, TokenType::StreamStart(TEncoding::Utf8)));
-        self.simple_keys.push(SimpleKey::new(Marker::new(0, 0, 0)));
+        self.tokens.push_back(Token(
+            Marker::emtpy(mark),
+            TokenType::StreamStart(TEncoding::Utf8),
+        ));
+        self.simple_keys
+            .push(SimpleKey::new(OneMarker::new(0, 0, 0)));
     }
 
     fn fetch_stream_end(&mut self) -> ScanResult {
@@ -530,7 +561,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.disallow_simple_key();
 
         self.tokens
-            .push_back(Token(self.mark, TokenType::StreamEnd));
+            .push_back(Token(self.new_marker(self.mark), TokenType::StreamEnd));
         Ok(())
     }
 
@@ -565,7 +596,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
                 }
                 // XXX return an empty TagDirective token
                 Token(
-                    start_mark,
+                    self.new_marker(start_mark),
                     TokenType::TagDirective(String::new(), String::new()),
                 )
                 // return Err(ScanError::new(start_mark,
@@ -602,7 +633,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         Ok(tok)
     }
 
-    fn scan_version_directive_value(&mut self, mark: &Marker) -> Result<Token, ScanError> {
+    fn scan_version_directive_value(&mut self, mark: &OneMarker) -> Result<Token, ScanError> {
         self.lookahead(1);
 
         while is_blank(self.ch()) {
@@ -623,7 +654,10 @@ impl<T: Iterator<Item = char>> Scanner<T> {
 
         let minor = self.scan_version_directive_number(mark)?;
 
-        Ok(Token(*mark, TokenType::VersionDirective(major, minor)))
+        Ok(Token(
+            self.new_marker(*mark),
+            TokenType::VersionDirective(major, minor),
+        ))
     }
 
     fn scan_directive_name(&mut self) -> Result<String, ScanError> {
@@ -653,7 +687,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         Ok(string)
     }
 
-    fn scan_version_directive_number(&mut self, mark: &Marker) -> Result<u32, ScanError> {
+    fn scan_version_directive_number(&mut self, mark: &OneMarker) -> Result<u32, ScanError> {
         let mut val = 0u32;
         let mut length = 0usize;
         self.lookahead(1);
@@ -680,7 +714,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         Ok(val)
     }
 
-    fn scan_tag_directive_value(&mut self, mark: &Marker) -> Result<Token, ScanError> {
+    fn scan_tag_directive_value(&mut self, mark: &OneMarker) -> Result<Token, ScanError> {
         self.lookahead(1);
         /* Eat whitespaces. */
         while is_blank(self.ch()) {
@@ -702,7 +736,10 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.lookahead(1);
 
         if is_blankz(self.ch()) {
-            Ok(Token(*mark, TokenType::TagDirective(handle, prefix)))
+            Ok(Token(
+                self.new_marker(*mark),
+                TokenType::TagDirective(handle, prefix),
+            ))
         } else {
             Err(ScanError::new(
                 *mark,
@@ -767,7 +804,10 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.lookahead(1);
         if is_blankz(self.ch()) {
             // XXX: ex 7.2, an empty scalar can follow a secondary tag
-            Ok(Token(start_mark, TokenType::Tag(handle, suffix)))
+            Ok(Token(
+                self.new_marker(start_mark),
+                TokenType::Tag(handle, suffix),
+            ))
         } else {
             Err(ScanError::new(
                 start_mark,
@@ -776,7 +816,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
     }
 
-    fn scan_tag_handle(&mut self, directive: bool, mark: &Marker) -> Result<String, ScanError> {
+    fn scan_tag_handle(&mut self, directive: bool, mark: &OneMarker) -> Result<String, ScanError> {
         let mut string = String::new();
         self.lookahead(1);
         if self.ch() != '!' {
@@ -817,7 +857,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         directive: bool,
         _is_secondary: bool,
         head: &str,
-        mark: &Marker,
+        mark: &OneMarker,
     ) -> Result<String, ScanError> {
         let mut length = head.len();
         let mut string = String::new();
@@ -865,7 +905,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         Ok(string)
     }
 
-    fn scan_uri_escapes(&mut self, _directive: bool, mark: &Marker) -> Result<char, ScanError> {
+    fn scan_uri_escapes(&mut self, _directive: bool, mark: &OneMarker) -> Result<char, ScanError> {
         let mut width = 0usize;
         let mut code = 0u32;
         loop {
@@ -956,9 +996,12 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         if alias {
-            Ok(Token(start_mark, TokenType::Alias(string)))
+            Ok(Token(self.new_marker(start_mark), TokenType::Alias(string)))
         } else {
-            Ok(Token(start_mark, TokenType::Anchor(string)))
+            Ok(Token(
+                self.new_marker(start_mark),
+                TokenType::Anchor(string),
+            ))
         }
     }
 
@@ -973,7 +1016,8 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let start_mark = self.mark;
         self.skip();
 
-        self.tokens.push_back(Token(start_mark, tok));
+        self.tokens
+            .push_back(Token(self.new_marker(start_mark), tok));
         Ok(())
     }
 
@@ -986,7 +1030,8 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let start_mark = self.mark;
         self.skip();
 
-        self.tokens.push_back(Token(start_mark, tok));
+        self.tokens
+            .push_back(Token(self.new_marker(start_mark), tok));
         Ok(())
     }
 
@@ -998,12 +1043,13 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
 
         self.tokens
-            .push_back(Token(start_mark, TokenType::FlowEntry));
+            .push_back(Token(self.new_marker(start_mark), TokenType::FlowEntry));
         Ok(())
     }
 
     fn increase_flow_level(&mut self) -> ScanResult {
-        self.simple_keys.push(SimpleKey::new(Marker::new(0, 0, 0)));
+        self.simple_keys
+            .push(SimpleKey::new(OneMarker::new(0, 0, 0)));
         self.flow_level = self
             .flow_level
             .checked_add(1)
@@ -1044,7 +1090,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
 
         self.tokens
-            .push_back(Token(start_mark, TokenType::BlockEntry));
+            .push_back(Token(self.new_marker(start_mark), TokenType::BlockEntry));
         Ok(())
     }
 
@@ -1059,7 +1105,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
         self.skip();
 
-        self.tokens.push_back(Token(mark, t));
+        self.tokens.push_back(Token(self.new_marker(mark), t));
         Ok(())
     }
 
@@ -1215,12 +1261,12 @@ impl<T: Iterator<Item = char>> Scanner<T> {
 
         if literal {
             Ok(Token(
-                start_mark,
+                self.new_marker(start_mark),
                 TokenType::Scalar(TScalarStyle::Literal, string),
             ))
         } else {
             Ok(Token(
-                start_mark,
+                self.new_marker(start_mark),
                 TokenType::Scalar(TScalarStyle::Foled, string),
             ))
         }
@@ -1467,12 +1513,12 @@ impl<T: Iterator<Item = char>> Scanner<T> {
 
         if single {
             Ok(Token(
-                start_mark,
+                self.new_marker(start_mark),
                 TokenType::Scalar(TScalarStyle::SingleQuoted, string),
             ))
         } else {
             Ok(Token(
-                start_mark,
+                self.new_marker(start_mark),
                 TokenType::Scalar(TScalarStyle::DoubleQuoted, string),
             ))
         }
@@ -1600,7 +1646,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         Ok(Token(
-            start_mark,
+            self.new_marker(start_mark),
             TokenType::Scalar(TScalarStyle::Plain, string),
         ))
     }
@@ -1632,7 +1678,8 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         self.skip();
-        self.tokens.push_back(Token(start_mark, TokenType::Key));
+        self.tokens
+            .push_back(Token(self.new_marker(start_mark), TokenType::Key));
         Ok(())
     }
 
@@ -1641,7 +1688,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let start_mark = self.mark;
         if sk.possible {
             // insert simple key
-            let tok = Token(sk.mark, TokenType::Key);
+            let tok = Token(Marker::emtpy(sk.mark), TokenType::Key);
             let tokens_parsed = self.tokens_parsed;
             self.insert_token(sk.token_number - tokens_parsed, tok);
 
@@ -1680,12 +1727,13 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             }
         }
         self.skip();
-        self.tokens.push_back(Token(start_mark, TokenType::Value));
+        self.tokens
+            .push_back(Token(self.new_marker(start_mark), TokenType::Value));
 
         Ok(())
     }
 
-    fn roll_indent(&mut self, col: usize, number: Option<usize>, tok: TokenType, mark: Marker) {
+    fn roll_indent(&mut self, col: usize, number: Option<usize>, tok: TokenType, mark: OneMarker) {
         if self.flow_level > 0 {
             return;
         }
@@ -1695,8 +1743,8 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             self.indent = col as isize;
             let tokens_parsed = self.tokens_parsed;
             match number {
-                Some(n) => self.insert_token(n - tokens_parsed, Token(mark, tok)),
-                None => self.tokens.push_back(Token(mark, tok)),
+                Some(n) => self.insert_token(n - tokens_parsed, Token(Marker::emtpy(mark), tok)),
+                None => self.tokens.push_back(Token(Marker::emtpy(mark), tok)),
             }
         }
     }
@@ -1706,7 +1754,8 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             return;
         }
         while self.indent > col {
-            self.tokens.push_back(Token(self.mark, TokenType::BlockEnd));
+            self.tokens
+                .push_back(Token(self.new_marker(self.mark), TokenType::BlockEnd));
             self.indent = self.indents.pop().unwrap();
         }
     }

@@ -163,7 +163,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn parse(&mut self) -> ParseResult {
         if self.state == State::End {
-            return Ok((Event::StreamEnd, self.scanner.mark()));
+            return Ok((Event::StreamEnd, Marker::emtpy(self.scanner.mark())));
         }
         let (ev, mark) = self.state_machine()?;
         // println!("EV {:?}", ev);
@@ -183,7 +183,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
         if self.scanner.stream_ended() {
             // XXX has parsed?
-            recv.on_event(Event::StreamEnd, self.scanner.mark());
+            recv.on_event(Event::StreamEnd, Marker::emtpy(self.scanner.mark()));
             return Ok(());
         }
         loop {
@@ -328,7 +328,10 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 self.skip();
                 Ok((Event::StreamStart, mark))
             }
-            Token(mark, _) => Err(ScanError::new(mark, "did not find expected <stream-start>")),
+            Token(mark, _) => Err(ScanError::new(
+                *mark.begin(),
+                "did not find expected <stream-start>",
+            )),
         }
     }
 
@@ -395,7 +398,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 Ok((Event::DocumentStart, mark))
             }
             Token(mark, _) => Err(ScanError::new(
-                mark,
+                *mark.begin(),
                 "did not find expected <document start>",
             )),
         }
@@ -454,7 +457,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     match self.anchors.get(&name) {
                         None => {
                             return Err(ScanError::new(
-                                mark,
+                                *mark.begin(),
                                 "while parsing node, found unknown anchor",
                             ))
                         }
@@ -529,7 +532,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 Ok((Event::empty_scalar_with_anchor(anchor_id, tag), mark))
             }
             Token(mark, _) => Err(ScanError::new(
-                mark,
+                *mark.begin(),
                 "while parsing a node, did not find expected node content",
             )),
         }
@@ -570,7 +573,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 Ok((Event::MappingEnd, mark))
             }
             Token(mark, _) => Err(ScanError::new(
-                mark,
+                *mark.begin(),
                 "while parsing a block mapping, did not find expected key",
             )),
         }
@@ -615,7 +618,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                         if !first {
                             match *self.peek_token()? {
                             Token(_, TokenType::FlowEntry) => self.skip(),
-                            Token(mark, _) => return Err(ScanError::new(mark,
+                            Token(mark, _) => return Err(ScanError::new(*mark.begin(),
                                 "while parsing a flow mapping, did not find expected ',' or '}'"))
                         }
                         }
@@ -703,7 +706,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
             }
             Token(mark, _) if !first => {
                 return Err(ScanError::new(
-                    mark,
+                    *mark.begin(),
                     "while parsing a flow sequence, expected ',' or ']'",
                 ));
             }
@@ -778,7 +781,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 }
             }
             Token(mark, _) => Err(ScanError::new(
-                mark,
+                *mark.begin(),
                 "while parsing a block collection, did not find expected '-' indicator",
             )),
         }
@@ -825,7 +828,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn flow_sequence_entry_mapping_end(&mut self) -> ParseResult {
         self.state = State::FlowSequenceEntry;
-        Ok((Event::MappingEnd, self.scanner.mark()))
+        Ok((Event::MappingEnd, Marker::emtpy(self.scanner.mark())))
     }
 }
 
