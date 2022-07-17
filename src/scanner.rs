@@ -1538,6 +1538,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let indent = self.indent + 1;
         let start_mark = self.mark;
 
+        let mut marker = None;
         let mut string = String::new();
         let mut leading_break = String::new();
         let mut trailing_breaks = String::new();
@@ -1600,6 +1601,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
                 self.skip();
                 self.lookahead(2);
             }
+            marker = Some(self.new_marker(start_mark));
             // is the end?
             if !(is_blank(self.ch()) || is_break(self.ch())) {
                 break;
@@ -1619,6 +1621,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
                         self.skip();
                     } else {
                         whitespaces.push(self.ch());
+                        marker = None;
                         self.skip();
                     }
                 } else {
@@ -1646,7 +1649,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         Ok(Token(
-            self.new_marker(start_mark),
+            marker.unwrap_or_else(|| self.new_marker(start_mark)),
             TokenType::Scalar(TScalarStyle::Plain, string),
         ))
     }
